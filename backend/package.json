@@ -6,8 +6,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "test": "node src/tests/api.test.js"
+    "dev": "node --watch --watch-path=.env src/server.js",
+    "test": "node src/tests/api.test.js",
+    "seed:osm": "node src/scripts/seedBengaluruTiles.js"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

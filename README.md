@@ -114,14 +114,23 @@ JWT_SECRET=replace_with_strong_secret
 JWT_EXPIRES_IN=1d
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash
+GEOAPIFY_API_KEY=
 MAP_TILE_URL=https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
 
 **`frontend/.env.example`**:
 ```env
 VITE_API_BASE_URL=http://localhost:5000/api/v1
+VITE_GEOAPIFY_API_KEY=
 VITE_MAP_TILE_URL=https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
+
+#### Geoapify & Leaflet + OpenStreetMap Mapping Configuration
+- RushRoute uses **Leaflet + OpenStreetMap** out of the box with zero mandatory paid API dependencies, and automatically upgrades to **Geoapify** map tiles (`osm-bright`), **Geoapify Location Autocomplete**, **Geoapify Reverse Geocoding**, and **Geoapify Pedestrian/Driving Routing API** when `VITE_GEOAPIFY_API_KEY` is provided in `frontend/.env`.
+- To enable Geoapify:
+  1. Create a free account at `https://myprojects.geoapify.com` (3,000 free credits/day, no credit card required).
+  2. Copy your API key and set `VITE_GEOAPIFY_API_KEY=your_geoapify_key` in `frontend/.env` (and optionally `GEOAPIFY_API_KEY=your_geoapify_key` in `backend/.env`).
+- If `VITE_GEOAPIFY_API_KEY` is left empty, `RouteMap.jsx` and `LocationInput` seamlessly fall back to **Leaflet + OpenStreetMap** tiles and deterministic Bengaluru street-grid routing.
 
 ### Step 3 — Database Setup (Supabase PostgreSQL)
 Execute [`database/migrations/001_initial_schema.sql`](database/migrations/001_initial_schema.sql) and [`database/seed/001_demo_seed.sql`](database/seed/001_demo_seed.sql) in your Supabase SQL Editor. (If `SUPABASE_URL` is left blank during local development, the backend automatically persists all tables and constraints in `backend/data/local-store.json` seeded with the demo accounts.)

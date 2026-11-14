@@ -10,15 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOCAL_STORE_PATH = path.resolve(__dirname, '../../data/local-store.json');
 
-// Initialize official Supabase client when credentials are provided
-export const supabaseClient = env.isSupabaseConfigured
-  ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    })
-  : null;
+// Initialize official Supabase client when credentials are provided (unless running isolated local unit tests)
+export const supabaseClient =
+  env.isSupabaseConfigured && process.env.FORCE_LOCAL_TEST_DB !== 'true'
+    ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false
+        }
+      })
+    : null;
 
 // Concurrency mutex for atomic database transactions (prevents duplicate confirmed bookings & duplicate carpool pairs)
 let transactionChain = Promise.resolve();
@@ -248,7 +249,7 @@ export const db = {
     const now = new Date().toISOString();
     const row = {
       id: record.id || crypto.randomUUID(),
-      created_at: record.created_at || now,
+      ...(table !== 'user_preferences' ? { created_at: record.created_at || now } : {}),
       ...record
     };
     if (['app_users', 'profiles', 'ride_bookings', 'user_preferences'].includes(table)) {
@@ -256,13 +257,36 @@ export const db = {
     }
 
     if (supabaseClient) {
-      const { data, error } = await supabaseClient.from(table).insert(row).select().single();
+      // Prepare a clean copy matching 001_initial_schema.sql columns for Supabase PostgreSQL
+      const pgRow = { ...row };
+      if (table === 'user_preferences') {
+        delete pgRow.created_at;
+      }
+      if (
+        (table === 'ride_requests' || table === 'ride_bookings') &&
+        pgRow.vehicle_type === 'SUV'
+      ) {
+        // 001_initial_schema.sql has CHECK (vehicle_type IN ('Bike', 'Auto', 'Mini', 'Sedan'))
+        pgRow.vehicle_type = 'Sedan';
+      }
+      if (table === 'ride_bookings') {
+        delete pgRow.simulated_driver;
+        delete pgRow.booking_stage;
+        delete pgRow.booking_stages;
+        delete pgRow.scheduled_for;
+      }
+      if (table === 'ride_requests') {
+        delete pgRow.scheduled_for;
+        delete pgRow.passenger_count;
+      }
+
+      const { data, error } = await supabaseClient.from(table).insert(pgRow).select().single();
       if (error) {
         const err = new Error(error.message);
         err.code = error.code;
         throw err;
       }
-      return data;
+      return { ...row, ...data, vehicle_type: row.vehicle_type || data.vehicle_type };
     }
 
     const store = readLocalStore();
@@ -317,24 +341,36 @@ export const db = {
   },
 
   async findMany(table, filterFnOrObj = {}, options = {}) {
-    if (supabaseClient && typeof filterFnOrObj === 'object' && filterFnOrObj !== null) {
+    if (supabaseClient) {
+      const defaultOrderCol = table === 'user_preferences' ? 'updated_at' : 'created_at';
       let query = supabaseClient.from(table).select('*');
-      for (const [k, v] of Object.entries(filterFnOrObj)) {
-        if (v !== undefined) {
-          query = query.eq(k, v);
+
+      if (typeof filterFnOrObj === 'object' && filterFnOrObj !== null) {
+        for (const [k, v] of Object.entries(filterFnOrObj)) {
+          if (v !== undefined) {
+            query = query.eq(k, v);
+          }
         }
       }
-      if (options.orderBy) {
-        query = query.order(options.orderBy, { ascending: Boolean(options.ascending) });
-      } else {
-        query = query.order('created_at', { ascending: false });
-      }
-      if (options.limit) {
+
+      const orderCol = options.orderBy || defaultOrderCol;
+      query = query.order(orderCol, { ascending: Boolean(options.ascending) });
+
+      if (typeof filterFnOrObj !== 'function' && options.limit) {
         query = query.limit(options.limit);
       }
+
       const { data, error } = await query;
       if (error) throw new Error(error.message);
-      return data || [];
+      let rows = data || [];
+
+      if (typeof filterFnOrObj === 'function') {
+        rows = rows.filter(filterFnOrObj);
+      }
+      if (options.limit) {
+        rows = rows.slice(0, options.limit);
+      }
+      return rows;
     }
 
     const store = readLocalStore();

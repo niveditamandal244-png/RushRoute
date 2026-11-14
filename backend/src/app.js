@@ -7,8 +7,12 @@ import apiRoutes from './routes/apiRoutes.js';
 
 const app = express();
 
-// Security headers via Helmet
-app.use(helmet());
+// Security headers via Helmet (allow cross-origin map tile images for multi-origin deployments)
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  })
+);
 
 // CORS allowlist supporting configured FRONTEND_URL and local Vite dev servers
 const allowedOrigins = new Set([
@@ -30,13 +34,14 @@ app.use(
   })
 );
 
-// Global rate limiter
+// Global rate limiter (skip static map tiles so panning/zooming for multiple users never throttles)
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/api/v1/map/tiles')
   })
 );
 

@@ -1,7 +1,19 @@
 import { z } from 'zod';
 
-export const ALLOWED_VEHICLES = ['Bike', 'Auto', 'Mini', 'Sedan'];
-export const ALLOWED_TRANSPORT_MODES = ['Bus', 'Metro', 'Auto', 'Walking', 'Bike', 'Mini', 'Sedan', 'Any'];
+export const ALLOWED_VEHICLES = ['Bike', 'Auto', 'Mini', 'Sedan', 'SUV'];
+export const ALLOWED_TRANSPORT_MODES = [
+  'Bus',
+  'BMTC Bus',
+  'Metro',
+  'Namma Metro',
+  'Auto',
+  'Walking',
+  'Bike',
+  'Mini',
+  'Sedan',
+  'SUV',
+  'Any'
+];
 export const ALLOWED_INCIDENT_CATEGORIES = [
   'Delay',
   'Skipped stop',
@@ -22,29 +34,69 @@ export const ALLOWED_INCIDENT_STATUSES = [
 const latitudeSchema = z.number().min(-90, 'Latitude must be >= -90').max(90, 'Latitude must be <= 90').optional().nullable();
 const longitudeSchema = z.number().min(-180, 'Longitude must be >= -180').max(180, 'Longitude must be <= 180').optional().nullable();
 
+// Phone helper: optional, rejects emails/letters, accepts optional + country code and 7-15 digits
+const optionalPhoneSchema = z.preprocess(
+  (val) => {
+    if (val === undefined || val === null) return null;
+    const trimmed = String(val).trim();
+    return trimmed === '' ? null : trimmed;
+  },
+  z
+    .string()
+    .nullable()
+    .refine(
+      (val) => {
+        if (val === null) return true;
+        if (val.includes('@') || /[A-Za-z]/.test(val)) return false;
+        if (!/^\+?[\d\s\-().]+$/.test(val)) return false;
+        const digits = val.replace(/\D/g, '');
+        return digits.length >= 7 && digits.length <= 15;
+      },
+      { message: 'Please enter a valid phone number.' }
+    )
+);
+
 // 1. registerSchema
 export const registerSchema = z.object({
-  full_name: z.string().trim().min(2, 'Full name must be at least 2 characters').max(100, 'Full name cannot exceed 100 characters'),
-  email: z.string().trim().email('Please provide a valid email address').max(150).transform((v) => v.toLowerCase()),
+  full_name: z
+    .string({ required_error: 'Full name is required.' })
+    .trim()
+    .min(2, 'Full name must be at least 2 characters.')
+    .max(100, 'Full name cannot exceed 100 characters.'),
+  email: z
+    .string({ required_error: 'Email address is required.' })
+    .trim()
+    .email('Email address is invalid.')
+    .max(150, 'Email address cannot exceed 150 characters.')
+    .transform((v) => v.toLowerCase()),
   password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100, 'Password cannot exceed 100 characters')
-    .regex(/[A-Za-z]/, 'Password must contain at least one letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
-  phone: z.string().trim().min(7).max(20).optional().nullable()
+    .string({ required_error: 'Password is required.' })
+    .min(8, 'Password must contain at least 8 characters.')
+    .max(100, 'Password cannot exceed 100 characters.')
+    .regex(/[A-Za-z]/, 'Password must contain at least one letter.')
+    .regex(/[0-9]/, 'Password must contain at least one number.'),
+  phone: optionalPhoneSchema
 });
 
 // 2. loginSchema
 export const loginSchema = z.object({
-  email: z.string().trim().email('Please provide a valid email address').transform((v) => v.toLowerCase()),
-  password: z.string().min(1, 'Password is required').max(100)
+  email: z
+    .string({ required_error: 'Email address is required.' })
+    .trim()
+    .email('Email address is invalid.')
+    .transform((v) => v.toLowerCase()),
+  password: z.string().min(1, 'Password is required.').max(100)
 });
 
 // 3. profileUpdateSchema
 export const profileUpdateSchema = z.object({
-  full_name: z.string().trim().min(2).max(100).optional(),
-  phone: z.string().trim().min(7).max(20).optional().nullable(),
+  full_name: z
+    .string()
+    .trim()
+    .min(2, 'Full name must be at least 2 characters.')
+    .max(100, 'Full name cannot exceed 100 characters.')
+    .optional(),
+  phone: optionalPhoneSchema.optional(),
   saved_locations: z
     .array(
       z.object({
@@ -78,7 +130,9 @@ export const journeySearchSchema = z
     pickup_longitude: longitudeSchema,
     destination_latitude: latitudeSchema,
     destination_longitude: longitudeSchema,
+    travel_date: z.string().optional().nullable(),
     departure_time: z.string().optional().nullable(),
+    passenger_count: z.number().int().min(1).max(6).optional().default(1),
     maximum_budget: z.number().finite().positive('Maximum budget must be positive').max(50000).optional().nullable(),
     preferred_mode: z.enum(ALLOWED_TRANSPORT_MODES).optional().nullable()
   })
@@ -102,6 +156,7 @@ export const rideRequestSchema = z
     vehicle_type: z.enum(ALLOWED_VEHICLES, {
       errorMap: () => ({ message: `Vehicle category must be one of: ${ALLOWED_VEHICLES.join(', ')}` })
     }),
+    passenger_count: z.number().int().min(1).max(6).optional().default(1),
     minimum_budget: z.number().finite().positive('Minimum budget must be positive').max(50000).optional().nullable(),
     maximum_budget: z.number().finite().positive('Maximum budget must be positive').max(50000).optional().nullable(),
     auto_book_cheapest: z.boolean().optional().default(true)

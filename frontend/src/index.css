@@ -1,8 +1,30 @@
 @import "tailwindcss";
 
+:root {
+  --rr-dark-emerald: #022C22;
+  --rr-emerald: #047857;
+  --rr-accent: #10B981;
+  --rr-light-emerald: #ECFDF5;
+  --rr-bg: #F7F9F8;
+  --rr-surface: #FFFFFF;
+  --rr-text: #17211E;
+  --rr-muted: #727C77;
+  --rr-border: #E5EAE7;
+}
+
 @layer base {
+  html,
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    overflow-x: hidden;
+    background-color: var(--rr-bg);
+    color: var(--rr-text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 }
 

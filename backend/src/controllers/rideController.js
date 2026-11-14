@@ -1,6 +1,19 @@
 import { db, withDatabaseTransaction } from '../config/database.js';
-import { demoRideProvider, getProviderRegistryStatus } from '../services/providerAdapter.js';
+import {
+  BOOKING_PROGRESS_STAGES,
+  demoRideProvider,
+  generateSimulatedDriverDetails,
+  getProviderRegistryStatus
+} from '../services/providerAdapter.js';
+import {
+  evaluateAndAdvanceRaceSession,
+  getSmartBookingRaceSession,
+  processExplicitProviderRaceEvent,
+  startSmartBookingRaceSession
+} from '../services/bookingRaceCoordinator.js';
 import { resolveCoordinates } from '../utils/geo.js';
+
+const inMemoryBookingStageStore = new Map();
 
 export async function getProviders(_req, res) {
   return res.status(200).json({
@@ -19,6 +32,7 @@ export async function estimateRides(req, res) {
       destination_latitude,
       destination_longitude,
       vehicle_type,
+      passenger_count = 1,
       minimum_budget,
       maximum_budget
     } = req.body;
@@ -55,7 +69,8 @@ export async function estimateRides(req, res) {
       pickupLng: pickup_longitude,
       destinationLat: destination_latitude,
       destinationLng: destination_longitude,
-      vehicleType: vehicle_type || null
+      vehicleType: vehicle_type || null,
+      passengerCount: passenger_count
     });
 
     const filteredQuotes = allQuotes.map((q) => {
@@ -117,6 +132,7 @@ export async function createRideRequest(req, res) {
       destination_latitude,
       destination_longitude,
       vehicle_type,
+      passenger_count = 1,
       minimum_budget,
       maximum_budget,
       auto_book_cheapest = true
@@ -147,7 +163,8 @@ export async function createRideRequest(req, res) {
         pickupLng: start.lng,
         destinationLat: end.lat,
         destinationLng: end.lng,
-        vehicleType: vehicle_type
+        vehicleType: vehicle_type,
+        passengerCount: passenger_count
       });
 
       // Filter by budget and sort cheapest first
@@ -203,10 +220,17 @@ export async function createRideRequest(req, res) {
           const { booking, quote } = createdBookings[i];
           const dispatchOutcome = demoRideProvider.attemptDispatch(quote, i);
           if (dispatchOutcome.accepted && !confirmedBooking) {
-            confirmedBooking = await db.update('ride_bookings', booking.id, {
+            const rawConfirmed = await db.update('ride_bookings', booking.id, {
               booking_status: 'confirmed',
               provider_reference: dispatchOutcome.provider_reference
             });
+            inMemoryBookingStageStore.set(booking.id, 'Driver assigned');
+            confirmedBooking = {
+              ...rawConfirmed,
+              simulated_driver: dispatchOutcome.simulated_driver,
+              booking_stage: 'Driver assigned',
+              booking_stages: BOOKING_PROGRESS_STAGES
+            };
             workflowLog.push(
               `Confirmed cheapest suitable option (${booking.provider_name} at ₹${booking.estimated_fare}, Ref: ${dispatchOutcome.provider_reference}).`
             );
@@ -241,7 +265,10 @@ export async function createRideRequest(req, res) {
             source: 'DemoRideProvider (Simulated Ride Booking)',
             booking_id: confirmedBooking.id,
             provider_name: confirmedBooking.provider_name,
-            provider_reference: confirmedBooking.provider_reference
+            provider_reference: confirmedBooking.provider_reference,
+            simulated_driver: confirmedBooking.simulated_driver,
+            booking_stage: confirmedBooking.booking_stage || 'Driver assigned',
+            booking_stages: BOOKING_PROGRESS_STAGES
           },
           journey_status: 'selected'
         });
@@ -330,7 +357,17 @@ export async function listRideBookings(req, res) {
 
     const enriched = bookings.map((b) => ({
       ...b,
-      ride_request: reqMap.get(b.ride_request_id) || null
+      ride_request: reqMap.get(b.ride_request_id) || null,
+      simulated_driver: b.simulated_driver || generateSimulatedDriverDetails(b.vehicle_type),
+      booking_stage:
+        inMemoryBookingStageStore.get(b.id) ||
+        b.booking_stage ||
+        (b.booking_status === 'completed'
+          ? 'Journey completed'
+          : b.booking_status === 'confirmed'
+          ? 'Driver assigned'
+          : 'Request created'),
+      booking_stages: BOOKING_PROGRESS_STAGES
     }));
 
     return res.status(200).json({
@@ -459,6 +496,210 @@ export async function cancelRideBooking(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to cancel ride booking.'
+    });
+  }
+}
+
+export async function advanceRideBookingStage(req, res) {
+  try {
+    const bookingId = req.params.id;
+    const { stage } = req.body || {};
+
+    const booking = await db.findOne(
+      'ride_bookings',
+      (b) => b.id === bookingId && b.user_id === req.user.id
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        error: 'Booking not found.'
+      });
+    }
+
+    const currentStage =
+      inMemoryBookingStageStore.get(booking.id) || booking.booking_stage || 'Driver assigned';
+    const currentIndex = BOOKING_PROGRESS_STAGES.indexOf(currentStage);
+    const nextStage =
+      stage && BOOKING_PROGRESS_STAGES.includes(stage)
+        ? stage
+        : BOOKING_PROGRESS_STAGES[Math.min(BOOKING_PROGRESS_STAGES.length - 1, currentIndex + 1)];
+
+    inMemoryBookingStageStore.set(booking.id, nextStage);
+
+    let updatedBooking = booking;
+    if (nextStage === 'Journey completed' && booking.booking_status !== 'completed') {
+      updatedBooking = await db.update('ride_bookings', booking.id, {
+        booking_status: 'completed'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Demo booking stage updated to: ${nextStage}`,
+      booking: {
+        ...updatedBooking,
+        simulated_driver:
+          updatedBooking.simulated_driver ||
+          generateSimulatedDriverDetails(updatedBooking.vehicle_type),
+        booking_stage: nextStage,
+        booking_stages: BOOKING_PROGRESS_STAGES
+      }
+    });
+  } catch (_err) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update demo booking stage.'
+    });
+  }
+}
+
+export async function startSmartBookingRace(req, res) {
+  try {
+    const {
+      pickup_address,
+      destination_address,
+      pickup_latitude,
+      pickup_longitude,
+      destination_latitude,
+      destination_longitude,
+      vehicle_type = 'Auto',
+      passenger_count = 1,
+      budget_mode = 'Balanced',
+      minimum_budget = null,
+      maximum_budget = null,
+      price_convenience_balance = 'balanced',
+      race_scenario = 'auto',
+      idempotency_key = null,
+      immediate_resolve = false
+    } = req.body || {};
+
+    if (!pickup_address || !destination_address) {
+      return res.status(400).json({
+        success: false,
+        error: 'Pickup and destination addresses are required to start AI Smart Booking.'
+      });
+    }
+
+    if (
+      String(pickup_address).trim().toLowerCase() ===
+      String(destination_address).trim().toLowerCase()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Pickup and destination cannot be identical.'
+      });
+    }
+
+    const userId = req.user?.id || '11111111-1111-4111-8111-111111111101';
+
+    const session = await startSmartBookingRaceSession({
+      userId,
+      pickupAddress: pickup_address,
+      destinationAddress: destination_address,
+      pickupLat: pickup_latitude,
+      pickupLng: pickup_longitude,
+      destinationLat: destination_latitude,
+      destinationLng: destination_longitude,
+      vehicleType: vehicle_type,
+      passengerCount: passenger_count,
+      budgetMode: budget_mode,
+      minimumBudget: minimum_budget,
+      maximumBudget: maximum_budget,
+      priceConvenienceBalance: price_convenience_balance,
+      raceScenario: race_scenario,
+      idempotencyKey: idempotency_key || req.get('x-idempotency-key') || null,
+      immediateResolve: Boolean(immediate_resolve)
+    });
+
+    return res.status(201).json({
+      success: true,
+      is_demonstration_booking: true,
+      session
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to initiate RushRoute AI Smart Booking race.'
+    });
+  }
+}
+
+export async function getSmartBookingRaceStatus(req, res) {
+  try {
+    const { sessionId } = req.params;
+    const customElapsed =
+      req.query.elapsed_ms != null ? Number(req.query.elapsed_ms) : null;
+    const session = await evaluateAndAdvanceRaceSession(sessionId, {
+      forceImmediate: req.query.immediate === 'true',
+      customElapsedMs: Number.isFinite(customElapsed) ? customElapsed : null
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Smart booking race session not found.'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      is_demonstration_booking: true,
+      session
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve Smart Booking race status.'
+    });
+  }
+}
+
+export async function resolveSmartBookingRaceNow(req, res) {
+  try {
+    const { sessionId } = req.params;
+    const session = await evaluateAndAdvanceRaceSession(sessionId, {
+      forceImmediate: true
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Smart booking race session not found.'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      is_demonstration_booking: true,
+      session
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to resolve Smart Booking race.'
+    });
+  }
+}
+
+export async function triggerSmartBookingProviderEvent(req, res) {
+  try {
+    const { sessionId } = req.params;
+    const { provider_name, action = 'accept' } = req.body || {};
+    const outcome = await processExplicitProviderRaceEvent(sessionId, {
+      provider_name,
+      action
+    });
+
+    return res.status(200).json({
+      success: true,
+      is_demonstration_booking: true,
+      ...outcome
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message || 'Failed to process provider race event.'
     });
   }
 }

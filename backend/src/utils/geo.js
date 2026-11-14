@@ -123,6 +123,36 @@ export const KNOWN_LOCATIONS = [
     hasMetro: false,
     metroLine: null,
     busHub: 'KIA Vayu Vajra Terminal'
+  },
+  {
+    name: 'Bengaluru City Railway Station (KSR Majestic)',
+    keywords: ['railway station', 'ksr', 'bengaluru railway station', 'city railway', 'sbc'],
+    lat: 12.9781,
+    lng: 77.5696,
+    zone: 'Central',
+    hasMetro: true,
+    metroLine: 'Purple Line (City Railway Station)',
+    busHub: 'KSR Railway Feeder Terminal'
+  },
+  {
+    name: 'Vidhana Soudha (Cubbon Park / Ambedkar Station)',
+    keywords: ['vidhana soudha', 'cubbon park', 'high court', 'ambedkar station'],
+    lat: 12.9797,
+    lng: 77.5912,
+    zone: 'Central',
+    hasMetro: true,
+    metroLine: 'Purple Line',
+    busHub: 'Vidhana Soudha East Gate Stop'
+  },
+  {
+    name: 'Nagenahalli (Yelahanka North Corridor)',
+    keywords: ['nagenahalli', 'yelahanka', 'singanayakanahalli', 'doddaballapur road'],
+    lat: 13.1245,
+    lng: 77.5812,
+    zone: 'North',
+    hasMetro: false,
+    metroLine: null,
+    busHub: 'Nagenahalli BMTC Bus Stop'
   }
 ];
 

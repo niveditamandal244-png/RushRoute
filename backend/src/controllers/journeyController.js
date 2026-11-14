@@ -1,6 +1,10 @@
 import { db } from '../config/database.js';
 import { planMultimodalJourneys } from '../services/transitService.js';
 import {
+  BOOKING_PROGRESS_STAGES,
+  generateSimulatedDriverDetails
+} from '../services/providerAdapter.js';
+import {
   generateBudgetExplanation,
   generateJourneyRecommendation
 } from '../services/geminiService.js';
@@ -46,11 +50,27 @@ export async function getJourneyHistory(req, res) {
   try {
     const journeys = await db.findMany('journeys', (j) => j.user_id === req.user.id);
     const bookings = await db.findMany('ride_bookings', (b) => b.user_id === req.user.id);
+    const requests = await db.findMany('ride_requests', (r) => r.user_id === req.user.id);
+    const reqMap = new Map(requests.map((r) => [r.id, r]));
+
+    const enrichedBookings = bookings.map((b) => ({
+      ...b,
+      ride_request: reqMap.get(b.ride_request_id) || null,
+      simulated_driver: b.simulated_driver || generateSimulatedDriverDetails(b.vehicle_type),
+      booking_stage:
+        b.booking_stage ||
+        (b.booking_status === 'completed'
+          ? 'Journey completed'
+          : b.booking_status === 'confirmed'
+          ? 'Driver assigned'
+          : 'Request created'),
+      booking_stages: BOOKING_PROGRESS_STAGES
+    }));
 
     return res.status(200).json({
       success: true,
       journeys,
-      ride_bookings: bookings
+      ride_bookings: enrichedBookings
     });
   } catch (_err) {
     return res.status(500).json({

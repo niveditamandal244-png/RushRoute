@@ -26,17 +26,17 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
-            {/* Public Routes */}
+            {/* Open Prototype & Public Routes */}
             <Route path="/" element={<HomePage />} />
+            <Route path="/book-ride" element={<BookRidePage />} />
+            <Route path="/public-transport" element={<PublicTransportPage />} />
+            <Route path="/journey-results" element={<JourneyResultsPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
             {/* Protected Commuter Routes */}
             <Route element={<ProtectedRoute />}>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/book-ride" element={<BookRidePage />} />
-              <Route path="/public-transport" element={<PublicTransportPage />} />
-              <Route path="/journey-results" element={<JourneyResultsPage />} />
               <Route path="/carpool" element={<CarpoolPage />} />
               <Route path="/my-journeys" element={<MyJourneysPage />} />
               <Route path="/report-issue" element={<ReportIssuePage />} />

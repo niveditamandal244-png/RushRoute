@@ -63,28 +63,45 @@ async function callGeminiStructured({
   inputSummary
 }) {
   let finalResult = null;
-  let usedModel = env.GEMINI_MODEL || 'gemini-2.5-flash';
+  let usedModel = env.GEMINI_MODEL || 'gemini-3.8-flash';
 
   if (ai) {
-    try {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini request timeout exceeded (12s)')), 12000)
-      );
+    const candidateModels = [...new Set([usedModel, 'gemini-3.8-flash', 'gemini-3-flash-preview'])];
+    let succeeded = false;
 
-      const genPromise = ai.models.generateContent({
-        model: usedModel,
-        contents: String(prompt).slice(0, 6000),
-        config: {
-          systemInstruction: RUSHROUTE_SYSTEM_PROMPT,
-          responseMimeType: 'application/json',
-          responseJsonSchema
+    for (const candidateModel of candidateModels) {
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini request timeout exceeded (12s)')), 12000)
+        );
+
+        const genPromise = ai.models.generateContent({
+          model: candidateModel,
+          contents: String(prompt).slice(0, 6000),
+          config: {
+            systemInstruction: RUSHROUTE_SYSTEM_PROMPT,
+            responseMimeType: 'application/json',
+            responseJsonSchema
+          }
+        });
+
+        const response = await Promise.race([genPromise, timeoutPromise]);
+        const parsed = JSON.parse(response.text || '{}');
+        finalResult = zodSchema.parse(parsed);
+        usedModel = candidateModel;
+        succeeded = true;
+        break;
+      } catch (err) {
+        const msg = String(err?.message || '');
+        // If model is deprecated/unavailable to new users (404), try the next candidate model
+        if (msg.includes('404') || msg.includes('no longer available') || msg.includes('not found')) {
+          continue;
         }
-      });
+        break;
+      }
+    }
 
-      const response = await Promise.race([genPromise, timeoutPromise]);
-      const parsed = JSON.parse(response.text || '{}');
-      finalResult = zodSchema.parse(parsed);
-    } catch (_err) {
+    if (!succeeded) {
       usedModel = `${usedModel} (safe-structured-fallback)`;
       finalResult = zodSchema.parse(fallbackGenerator());
     }

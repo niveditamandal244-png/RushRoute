@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Info, Sparkles, Wallet } from 'lucide-reac
 
 export function AIInsightCard({ title, badge = 'Gemini Mobility AI', children }) {
   return (
-    <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 p-5 shadow-xs">
+    <div className="rounded-2xl border border-emerald-200 bg-linear-to-br from-emerald-50/80 via-white to-slate-50 p-5 shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-600 text-white">
@@ -60,11 +60,20 @@ export function AIExplanation({ budgetExplanation }) {
 export function AIRecommendationPanel({ recommendation, budgetExplanation, modelUsed }) {
   if (!recommendation) return null;
 
+  const isLiveGemini =
+    modelUsed &&
+    String(modelUsed).toLowerCase().includes('gemini') &&
+    !String(modelUsed).toLowerCase().includes('fallback');
+
   return (
     <div className="space-y-4">
       <AIInsightCard
-        title="RushRoute AI Mobility Recommendation"
-        badge={modelUsed ? `Verified Schema • ${modelUsed}` : 'Gemini Mobility Intelligence'}
+        title={isLiveGemini ? 'Gemini AI Recommendation' : 'Demo AI Recommendation'}
+        badge={
+          isLiveGemini
+            ? `Gemini AI Recommendation (${modelUsed})`
+            : 'Demo AI Recommendation (Deterministic Local Engine)'
+        }
       >
         <p className="font-medium text-slate-900">{recommendation.reason}</p>
 

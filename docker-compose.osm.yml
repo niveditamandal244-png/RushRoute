@@ -1,0 +1,21 @@
+# Optional Self-Hosted OSRM Routing Engine for Production Multi-User Deployment
+# Target Region: Karnataka / Bengaluru (https://download.geofabrik.de/asia/india/karnataka-latest.osm.pbf)
+#
+# Usage:
+#   1. mkdir -p osrm-data && curl -L https://download.geofabrik.de/asia/india/karnataka-latest.osm.pbf -o osrm-data/karnataka-latest.osm.pbf
+#   2. docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend osrm-extract -p /opt/car.lua /data/karnataka-latest.osm.pbf
+#   3. docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend osrm-partition /data/karnataka-latest.osrm
+#   4. docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend osrm-customize /data/karnataka-latest.osrm
+#   5. docker compose -f docker-compose.osm.yml up -d
+#   6. Set OSRM_BASE_URL=http://localhost:5050 in backend/.env
+
+services:
+  osrm-routed:
+    image: osrm/osrm-backend:latest
+    container_name: rushroute-osrm
+    restart: unless-stopped
+    ports:
+      - "5050:5000"
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/karnataka-latest.osrm

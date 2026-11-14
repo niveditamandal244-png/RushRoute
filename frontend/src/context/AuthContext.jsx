@@ -14,25 +14,53 @@ export function AuthProvider({ children }) {
   });
   const [token, setToken] = useState(() => localStorage.getItem('rushroute_token') || null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
+  useEffect(() => {
+    function handleSessionExpired(e) {
+      localStorage.removeItem('rushroute_token');
+      localStorage.removeItem('rushroute_user');
+      setToken(null);
+      setUser(null);
+      setSessionExpiredMessage(
+        e?.detail?.message || 'Your session has expired. Please sign in again.'
+      );
+    }
+
+    window.addEventListener('rushroute:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('rushroute:session-expired', handleSessionExpired);
+    };
+  }, []);
 
   useEffect(() => {
     async function verifySession() {
       const storedToken = localStorage.getItem('rushroute_token');
       if (!storedToken) {
+        localStorage.removeItem('rushroute_user');
+        setToken(null);
+        setUser(null);
         setLoading(false);
         return;
       }
+
       try {
         const res = await apiClient.get('/auth/me');
         if (res.data?.user) {
           setUser(res.data.user);
+          setToken(storedToken);
           localStorage.setItem('rushroute_user', JSON.stringify(res.data.user));
+        } else {
+          throw new Error('Invalid session');
         }
-      } catch {
+      } catch (err) {
         localStorage.removeItem('rushroute_token');
         localStorage.removeItem('rushroute_user');
         setToken(null);
         setUser(null);
+        if (err.response?.status === 401) {
+          setSessionExpiredMessage('Your session has expired. Please sign in again.');
+        }
       } finally {
         setLoading(false);
       }
@@ -41,7 +69,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    const res = await apiClient.post('/auth/login', { email, password });
+    sessionStorage.removeItem('rushroute_logged_out');
+    setSessionExpiredMessage('');
+    const res = await apiClient.post('/auth/login', {
+      email: String(email || '').trim().toLowerCase(),
+      password
+    });
     const { token: newToken, user: loggedInUser } = res.data;
     localStorage.setItem('rushroute_token', newToken);
     localStorage.setItem('rushroute_user', JSON.stringify(loggedInUser));
@@ -51,18 +84,26 @@ export function AuthProvider({ children }) {
   };
 
   const register = async (payload) => {
+    sessionStorage.removeItem('rushroute_logged_out');
+    setSessionExpiredMessage('');
     const res = await apiClient.post('/auth/register', payload);
     const { token: newToken, user: newUser } = res.data;
-    localStorage.setItem('rushroute_token', newToken);
-    localStorage.setItem('rushroute_user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-    return newUser;
+    if (newToken && newUser) {
+      localStorage.setItem('rushroute_token', newToken);
+      localStorage.setItem('rushroute_user', JSON.stringify(newUser));
+      setToken(newToken);
+      setUser(newUser);
+    }
+    return res.data;
   };
 
   const logout = async () => {
+    sessionStorage.setItem('rushroute_logged_out', 'true');
+    setSessionExpiredMessage('');
     try {
-      await apiClient.post('/auth/logout');
+      if (localStorage.getItem('rushroute_token')) {
+        await apiClient.post('/auth/logout');
+      }
     } catch {
       // Ignore network error during logout
     }
@@ -74,6 +115,10 @@ export function AuthProvider({ children }) {
 
   const refreshProfile = async () => {
     try {
+      const storedToken = localStorage.getItem('rushroute_token');
+      if (storedToken) {
+        setToken(storedToken);
+      }
       const res = await apiClient.get('/auth/me');
       if (res.data?.user) {
         setUser(res.data.user);
@@ -92,6 +137,8 @@ export function AuthProvider({ children }) {
         loading,
         isAuthenticated: Boolean(user && token),
         isAdmin: user?.role === 'admin',
+        sessionExpiredMessage,
+        clearSessionExpiredMessage: () => setSessionExpiredMessage(''),
         login,
         register,
         logout,

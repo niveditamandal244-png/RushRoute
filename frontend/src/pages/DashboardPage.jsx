@@ -1,35 +1,53 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowRight,
   Bus,
   Car,
   Compass,
+  Footprints,
   History,
   Sparkles,
   Users
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../services/api';
-import { JourneySearchForm } from '../components/JourneyComponents';
+import {
+  CurrentLocationStatusBanner,
+  JourneySearchForm,
+  useAutoBengaluruLocation
+} from '../components/JourneyComponents';
 import { AIRecommendationPanel } from '../components/AIComponents';
 import { BookingStatus } from '../components/RideComponents';
 
 export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { locationState, refreshLocation } = useAutoBengaluruLocation(
+    'Majestic (Kempegowda Bus Station / Metro Hub)'
+  );
 
   const [searchForm, setSearchForm] = useState({
-    pickup_address: 'Indiranagar (100 Feet Road / Metro)',
+    pickup_address: 'Majestic (Kempegowda Bus Station / Metro Hub)',
     destination_address: 'Whitefield (Kadugodi / ITPL)',
+    passenger_count: 1,
     maximum_budget: 200,
     preferred_mode: 'Any',
-    departure_time: ''
+    departure_time: '',
+    is_scheduled: false
   });
 
+  useEffect(() => {
+    if (locationState?.address) {
+      setSearchForm((prev) => ({
+        ...prev,
+        pickup_address: locationState.address
+      }));
+    }
+  }, [locationState?.address]);
+
   const [nlQuery, setNlQuery] = useState(
-    'Find the most practical commute from Indiranagar to Whitefield under ₹180 using Metro'
+    'Find the cheapest way to reach my destination.'
   );
   const [aiAdvice, setAiAdvice] = useState(null);
   const [loadingAi, setLoadingAi] = useState(false);
@@ -55,19 +73,28 @@ export function DashboardPage() {
     const params = new URLSearchParams({
       pickup: searchForm.pickup_address,
       destination: searchForm.destination_address,
+      passengers: String(searchForm.passenger_count || 1),
       ...(searchForm.maximum_budget ? { budget: String(searchForm.maximum_budget) } : {}),
       ...(searchForm.preferred_mode ? { mode: searchForm.preferred_mode } : {})
     });
     navigate(`/journey-results?${params.toString()}`);
   };
 
-  const handleAskNaturalLanguageAI = async (e) => {
-    e.preventDefault();
-    if (!nlQuery.trim()) return;
+  const executeNaturalLanguageAiQuery = async (customPrompt = null) => {
+    const promptText = customPrompt || nlQuery;
+    if (!promptText.trim()) return;
+    if (customPrompt) setNlQuery(customPrompt);
+
+    // If user asks to find a bus stop near them, also offer direct navigation
+    if (promptText.toLowerCase().includes('bus stop near me')) {
+      navigate('/public-transport?tab=nearest');
+      return;
+    }
+
     setLoadingAi(true);
     try {
       const res = await apiClient.post('/ai/journey-advice', {
-        natural_language_query: nlQuery,
+        natural_language_query: promptText,
         pickup_address: searchForm.pickup_address,
         destination_address: searchForm.destination_address,
         maximum_budget: searchForm.maximum_budget || undefined
@@ -80,77 +107,107 @@ export function DashboardPage() {
     }
   };
 
+  const aiSamplePrompts = [
+    'Find the cheapest route to Whitefield.',
+    'I have a budget of ₹50.',
+    'Find the fastest route to MG Road.',
+    'Compare BMTC and Metro.',
+    'Find the nearest bus stop.',
+    'Suggest the route with the least walking.',
+    'Which provider has the best eligible fare?'
+  ];
+
+  // Section 18: Main Dashboard Actions
   const quickActions = [
     {
-      title: 'Book Private Ride',
-      subtitle: 'Bike, Auto, Mini & Sedan',
+      title: 'Plan Journey',
+      subtitle: 'Multimodal fare & time compare',
+      to: '/journey-results',
+      icon: Compass,
+      color: 'bg-emerald-950 text-emerald-300'
+    },
+    {
+      title: 'AI Smart Booking',
+      subtitle: 'Uber • Ola • Rapido First-Acceptance Race',
       to: '/book-ride',
       icon: Car,
-      color: 'bg-slate-900 text-emerald-400'
+      color: 'bg-emerald-900 text-white'
     },
     {
-      title: 'Public Transit Planner',
-      subtitle: 'Bus, Metro & Walk Combos',
+      title: 'Public Transport',
+      subtitle: 'BMTC Bus & Namma Metro',
       to: '/public-transport',
       icon: Bus,
-      color: 'bg-emerald-600 text-white'
+      color: 'bg-emerald-800 text-white'
     },
     {
-      title: 'Carpool Discovery',
-      subtitle: 'Split costs with commuters',
+      title: 'Nearest BMTC Stops',
+      subtitle: 'GPS & walking route finder',
+      to: '/public-transport?tab=nearest',
+      icon: Footprints,
+      color: 'bg-teal-800 text-white'
+    },
+    {
+      title: 'Carpool',
+      subtitle: 'Share rides with commuters',
       to: '/carpool',
       icon: Users,
-      color: 'bg-indigo-600 text-white'
+      color: 'bg-emerald-700 text-white'
     },
     {
-      title: 'Report Transit Issue',
-      subtitle: 'Delays, crowding & drafts',
-      to: '/report-issue',
-      icon: AlertTriangle,
-      color: 'bg-amber-500 text-slate-950'
+      title: 'My Journeys',
+      subtitle: 'Past, scheduled & smart race winners',
+      to: '/my-journeys',
+      icon: History,
+      color: 'bg-slate-800 text-white'
     }
   ];
 
   return (
     <div className="space-y-8">
+      <CurrentLocationStatusBanner
+        locationState={locationState}
+        onRefresh={refreshLocation}
+      />
+
       {/* Greeting Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-900 p-6 text-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-emerald-950 p-6 text-white shadow-sm">
         <div>
-          <p className="text-xs font-semibold tracking-wider text-emerald-400 uppercase">
-            RushRoute Mobility Command Center
+          <p className="text-xs font-semibold tracking-wider text-emerald-300 uppercase">
+            RushRoute Bengaluru Mobility Command Center
           </p>
           <h1 className="mt-1 text-2xl font-extrabold">
             Hello, {user?.full_name?.split(' ')[0] || 'Commuter'}
           </h1>
-          <p className="mt-0.5 text-xs text-slate-300">
-            Where are you heading today? Compare multimodal routes or book a budget-filtered ride in seconds.
+          <p className="mt-0.5 text-xs text-emerald-100/90">
+            One Platform. Every Journey. Smarter Decisions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            to="/book-ride"
-            className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+            to="/public-transport?tab=nearest"
+            className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-300"
           >
-            Quick Ride Booking
+            Find Nearest BMTC Stop
           </Link>
           <Link
-            to="/my-journeys"
-            className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+            to="/book-ride"
+            className="rounded-xl border border-emerald-700 bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800"
           >
-            View My Journeys
+            Book Now (Demo Ride)
           </Link>
         </div>
       </div>
 
-      {/* Quick Action Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Main Actions Grid (Section 18) */}
+      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {quickActions.map((act) => {
           const Icon = act.icon;
           return (
             <Link
-              key={act.to}
+              key={act.title}
               to={act.to}
-              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition hover:border-slate-900"
+              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition hover:border-emerald-800"
             >
               <div className="flex items-center gap-3.5">
                 <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${act.color}`}>
@@ -169,10 +226,10 @@ export function DashboardPage() {
 
       {/* Journey Search Form */}
       <div>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-bold text-slate-900">Plan & Compare Multimodal Journey</h2>
           <span className="text-xs text-slate-500">
-            Compares Bus, Metro, Auto, Private Rides & Shared Carpool
+            Compares BMTC Bus, Namma Metro, Walking, Auto, Cab & Carpool
           </span>
         </div>
         <JourneySearchForm
@@ -183,33 +240,62 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Natural Language Gemini Mobility Assistant */}
-      <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-xs">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-emerald-600" />
-          <h2 className="text-base font-bold text-slate-900">
-            Natural-Language AI Mobility Assistant (Powered by Google Gemini)
-          </h2>
+      {/* Section 13: Gemini AI Journey Assistant */}
+      <div id="ai-journey-assistant" className="rounded-2xl border border-emerald-900/20 bg-white p-5 shadow-xs sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-900 text-emerald-300">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900">
+                AI Journey Assistant (Powered by Google Gemini)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Uses verified application transport data & deterministic fares — never fabricates schedules or prices.
+              </p>
+            </div>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-900 ring-1 ring-emerald-900/15">
+            AI Explanation Layer
+          </span>
         </div>
-        <p className="mt-1 text-xs text-slate-600">
-          Describe your trip in plain English — Gemini parses your preferences and explains the most practical backend-calculated route.
-        </p>
 
-        <form onSubmit={handleAskNaturalLanguageAI} className="mt-3 flex flex-col gap-2.5 sm:flex-row">
+        {/* One-Click Natural Language Prompt Chips */}
+        <div className="mt-3.5 flex flex-wrap gap-2">
+          {aiSamplePrompts.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => executeNaturalLanguageAiQuery(prompt)}
+              className="rounded-xl border border-emerald-900/15 bg-emerald-50/60 px-3 py-1.5 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-100"
+            >
+              “{prompt}”
+            </button>
+          ))}
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            executeNaturalLanguageAiQuery();
+          }}
+          className="mt-3.5 flex flex-col gap-2.5 sm:flex-row"
+        >
           <input
             type="text"
             value={nlQuery}
             onChange={(e) => setNlQuery(e.target.value)}
-            placeholder="e.g., Find the cheapest way from Indiranagar to Whitefield under ₹150"
-            className="flex-1 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
+            placeholder="Ask e.g. 'Find the cheapest way to reach my destination' or 'Compare bus and metro'"
+            className="flex-1 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:border-emerald-800 focus:bg-white focus:outline-none"
           />
           <button
             type="submit"
             disabled={loadingAi}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
           >
-            <Sparkles className="h-4 w-4" />
-            {loadingAi ? 'Analyzing...' : 'Ask Mobility AI'}
+            <Sparkles className="h-4 w-4 text-emerald-300" />
+            {loadingAi ? 'Analyzing...' : 'Ask AI Assistant'}
           </button>
         </form>
 
@@ -229,10 +315,10 @@ export function DashboardPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Compass className="h-4 w-4 text-slate-700" />
+              <Compass className="h-4 w-4 text-emerald-800" />
               <h3 className="text-sm font-bold text-slate-900">Recent Planned Journeys</h3>
             </div>
-            <Link to="/my-journeys" className="text-xs font-semibold text-emerald-700 hover:underline">
+            <Link to="/my-journeys" className="text-xs font-semibold text-emerald-800 hover:underline">
               View All
             </Link>
           </div>
@@ -255,7 +341,7 @@ export function DashboardPage() {
                       Modes: {(j.transport_modes || []).join(' + ')} • {j.estimated_duration_minutes} mins
                     </p>
                   </div>
-                  <div className="text-right font-bold text-slate-900">₹{j.estimated_fare}</div>
+                  <div className="text-right font-bold text-emerald-950">₹{j.estimated_fare}</div>
                 </div>
               ))}
             </div>
@@ -265,16 +351,16 @@ export function DashboardPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <History className="h-4 w-4 text-slate-700" />
-              <h3 className="text-sm font-bold text-slate-900">Recent Simulated Ride Bookings</h3>
+              <History className="h-4 w-4 text-emerald-800" />
+              <h3 className="text-sm font-bold text-slate-900">Recent Demo Ride Bookings</h3>
             </div>
-            <Link to="/my-journeys" className="text-xs font-semibold text-emerald-700 hover:underline">
+            <Link to="/my-journeys" className="text-xs font-semibold text-emerald-800 hover:underline">
               View All
             </Link>
           </div>
           {recentHistory.ride_bookings.length === 0 ? (
             <p className="mt-4 text-xs text-slate-500">
-              No simulated ride bookings yet. Visit Book a Ride to test budget-prioritized dispatch.
+              No demonstration ride bookings yet. Visit Book a Ride to test the 6-stage simulated dispatch.
             </p>
           ) : (
             <div className="mt-3 space-y-2.5">
@@ -288,11 +374,11 @@ export function DashboardPage() {
                       {b.vehicle_type} — {b.provider_name}
                     </p>
                     <p className="text-slate-500">
-                      Ref: {b.provider_reference || 'N/A'} • {b.estimated_duration_minutes} mins
+                      Ref: {b.provider_reference || 'N/A'} • {b.estimated_duration_minutes} mins (DEMO BOOKING)
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">₹{b.estimated_fare}</span>
+                    <span className="font-bold text-emerald-950">₹{b.estimated_fare}</span>
                     <BookingStatus status={b.booking_status} />
                   </div>
                 </div>
