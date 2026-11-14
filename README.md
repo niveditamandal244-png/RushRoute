@@ -174,3 +174,4 @@ npm --prefix backend test
 1. **Third-Party Ride Providers**: Real-time Uber, Ola, and Rapido booking APIs require commercial partner agreements. RushRoute implements `DemoRideProvider` for functional simulated quotes/bookings alongside explicit `FutureUberProvider`, `FutureOlaProvider`, and `FutureRapidoProvider` adapter stubs. Every simulated fare and booking is clearly labelled as demonstration data.
 2. **Public Transport Telemetry**: Public bus and metro routes use a schedule-based demonstration corridor dataset. Live BMTC GPS tracking is never claimed without an authorized transit feed.
 3. **Passenger Complaint Submission**: AI-drafted transit complaints require explicit passenger review and approval and are never automatically transmitted to external authorities without an official grievance API integration.
+"# RushRoute" 
